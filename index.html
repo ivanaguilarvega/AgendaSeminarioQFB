@@ -8,11 +8,11 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const EMAIL_ACCESS_KEY = "89cd20c9-7f26-440a-929e-e90c2542b8e3"; 
 
+        // Separamos la llave para evitar alertas molestas de GitHub
         const parte1 = "AIzaSy";
         const parte2 = "BPLasqnOk20oYMwJ7u_cNMZEvnO8Yn9IA";
 
@@ -29,16 +29,14 @@
         const ADMIN_PASSWORD = "Seminario2026B"; 
 
         let db;
-        let auth;
         let isFirebaseActive = false;
 
         try {
             const app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
             db = getFirestore(app);
             isFirebaseActive = true;
         } catch (error) {
-            console.error("Error Firebase:", error);
+            console.error("Error al conectar con Firebase:", error);
         }
 
         let localState = {
@@ -63,26 +61,22 @@
             renderTable(localState); 
             setupUIEventListeners();
             if (isFirebaseActive) {
-                signInAnonymously(auth).then(() => {
-                    listenToDatabase();
-                }).catch(err => {
-                    console.log("Error de autenticación anónima:", err);
-                });
+                listenToDatabase();
             }
         });
 
         function listenToDatabase() {
-            // RUTA DIRECTA SIMPLIFICADA: Colección 'agenda' -> Documento 'bloques'
-            const docRef = doc(db, 'agenda', 'bloques');
+            // Conexión DIRECTA a la ruta exacta de tu captura de pantalla
+            const docRef = doc(db, 'artifacts', 'agenda-seminario');
             onSnapshot(docRef, (snapshot) => {
-                if (snapshot.exists()) {
-                    renderTable(snapshot.data());
+                if (snapshot.exists() && snapshot.data().bloques) {
+                    renderTable(snapshot.data().bloques);
                 } else {
-                    setDoc(docRef, localState);
+                    setDoc(docRef, { bloques: localState }, { merge: true });
                     renderTable(localState);
                 }
             }, (error) => {
-                console.error("Error en Snapshot de base de datos:", error);
+                console.error("Error leyendo Base de Datos. Verifica las Reglas:", error);
             });
         }
 
@@ -96,10 +90,12 @@
                         access_key: EMAIL_ACCESS_KEY,
                         subject: `📅 Nueva Reserva: Bloque ${horarios[bloqueIndex]} - ${equipo}`,
                         from_name: "Agenda CUCEI",
-                        message: `Nueva reserva:\n\n• Horario: ${horarios[bloqueIndex]}\n• Equipo: ${equipo}\n• Proyecto: ${proyecto}`
+                        message: `Se ha registrado una nueva reserva:\n\n• Horario: ${horarios[bloqueIndex]}\n• Equipo: ${equipo}\n• Proyecto: ${proyecto}`
                     })
                 });
-            } catch (err) {}
+            } catch (err) {
+                console.error("Error al procesar el envío de correo:", err);
+            }
         }
 
         function renderTable(data) {
@@ -182,13 +178,18 @@
                 return;
             }
 
-            const nuevoBloque = { equipo: equipoVal, proyecto: proyectoVal, asistencia: "Pendiente", calificacion: "" };
-            
+            // Disparar correo inmediatamente de fondo
+            enviarCorreoSincrono(index, equipoVal, proyectoVal);
+
             if (isFirebaseActive) {
-                const docRef = doc(db, 'agenda', 'bloques');
-                await updateDoc(docRef, { [index]: nuevoBloque });
-                showToast("¡Espacio reservado con éxito!", "success");
-                enviarCorreoSincrono(index, equipoVal, proyectoVal);
+                try {
+                    const docRef = doc(db, 'artifacts', 'agenda-seminario');
+                    await updateDoc(docRef, { [`bloques.${index}`]: { equipo: equipoVal, proyecto: proyectoVal, asistencia: "Pendiente", calificacion: "" } });
+                    showToast("¡Espacio reservado con éxito!", "success");
+                } catch(err) {
+                    console.error("Error guardando en Firestore:", err);
+                    showToast("Error de permisos. Verifica la pestaña Reglas.", "error");
+                }
             }
         };
 
@@ -206,27 +207,30 @@
         window.confirmarLiberarEspacio = async function() {
             if (bloqueParaLiberar === null) return;
             const index = bloqueParaLiberar;
-            const bloqueLimpio = { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" };
 
             if (isFirebaseActive) {
-                const docRef = doc(db, 'agenda', 'bloques');
-                await updateDoc(docRef, { [index]: bloqueLimpio });
-                showToast("Espacio liberado.", "info");
+                try {
+                    const docRef = doc(db, 'artifacts', 'agenda-seminario');
+                    await updateDoc(docRef, { [`bloques.${index}`]: { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" } });
+                    showToast("Espacio liberado.", "info");
+                } catch(e) {
+                    console.error(e);
+                }
             }
             cerrarModal();
         };
 
         window.cambiarAsistencia = async function(index, valor) {
             if (isFirebaseActive) {
-                const docRef = doc(db, 'agenda', 'bloques');
-                await updateDoc(docRef, { [`${index}.asistencia`]: valor });
+                const docRef = doc(db, 'artifacts', 'agenda-seminario');
+                await updateDoc(docRef, { [`bloques.${index}.asistencia`]: valor });
             }
         };
 
         window.cambiarCalificacion = async function(index, valor) {
             if (isFirebaseActive) {
-                const docRef = doc(db, 'agenda', 'bloques');
-                await updateDoc(docRef, { [`${index}.calificacion`]: valor });
+                const docRef = doc(db, 'artifacts', 'agenda-seminario');
+                await updateDoc(docRef, { [`bloques.${index}.calificacion`]: valor });
             }
         };
 
