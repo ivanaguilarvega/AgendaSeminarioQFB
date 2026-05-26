@@ -306,10 +306,10 @@
             btnEstudiante.addEventListener('click', () => setRol('estudiante'));
             btnProfesor.addEventListener('click', () => {
                 const pass = prompt("Introduce la contraseña de profesor:");
-                if (pass === "cucei") {
+                if (pass === "Seminario2026B") {
                     setRol('profesor');
                 } else {
-                    showToast("Contraseña incorrecta. Pista: es 'cucei'", "error");
+                    showToast("Contraseña incorrecta. Pista: es 'materia y ciclo'", "error");
                 }
             });
         }
