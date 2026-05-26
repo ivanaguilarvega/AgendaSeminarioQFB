@@ -13,7 +13,6 @@
 
         const EMAIL_ACCESS_KEY = "89cd20c9-7f26-440a-929e-e90c2542b8e3"; 
 
-        // Truco para burlar el escáner de GitHub y que no mande correos de alerta
         const parte1 = "AIzaSy";
         const parte2 = "BPLasqnOk20oYMwJ7u_cNMZEvnO8Yn9IA";
 
@@ -28,7 +27,6 @@
         };
 
         const ADMIN_PASSWORD = "Seminario2026B"; 
-        const appId = 'agenda-seminario';
 
         let db;
         let auth;
@@ -62,19 +60,20 @@
         };
 
         window.addEventListener('DOMContentLoaded', () => {
-            renderTable(localState); // Fuerza render inicial para evitar pantallas en blanco
+            renderTable(localState); 
             setupUIEventListeners();
             if (isFirebaseActive) {
                 signInAnonymously(auth).then(() => {
                     listenToDatabase();
                 }).catch(err => {
-                    console.log("Modo local de respaldo activado.");
+                    console.log("Error de autenticación anónima:", err);
                 });
             }
         });
 
         function listenToDatabase() {
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
+            // RUTA DIRECTA SIMPLIFICADA: Colección 'agenda' -> Documento 'bloques'
+            const docRef = doc(db, 'agenda', 'bloques');
             onSnapshot(docRef, (snapshot) => {
                 if (snapshot.exists()) {
                     renderTable(snapshot.data());
@@ -83,7 +82,7 @@
                     renderTable(localState);
                 }
             }, (error) => {
-                console.error("Falta configurar Reglas en Firebase:", error);
+                console.error("Error en Snapshot de base de datos:", error);
             });
         }
 
@@ -185,18 +184,11 @@
 
             const nuevoBloque = { equipo: equipoVal, proyecto: proyectoVal, asistencia: "Pendiente", calificacion: "" };
             
-            try {
-                if (isFirebaseActive) {
-                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
-                    await updateDoc(docRef, { [index]: nuevoBloque });
-                }
+            if (isFirebaseActive) {
+                const docRef = doc(db, 'agenda', 'bloques');
+                await updateDoc(docRef, { [index]: nuevoBloque });
                 showToast("¡Espacio reservado con éxito!", "success");
                 enviarCorreoSincrono(index, equipoVal, proyectoVal);
-            } catch(e) {
-                // Fallback local instantáneo por seguridad
-                localState[index] = nuevoBloque;
-                renderTable(localState);
-                showToast("Guardado localmente. Revisa las reglas de Firebase.", "warning");
             }
         };
 
@@ -216,29 +208,24 @@
             const index = bloqueParaLiberar;
             const bloqueLimpio = { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" };
 
-            try {
-                if (isFirebaseActive) {
-                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
-                    await updateDoc(docRef, { [index]: bloqueLimpio });
-                }
+            if (isFirebaseActive) {
+                const docRef = doc(db, 'agenda', 'bloques');
+                await updateDoc(docRef, { [index]: bloqueLimpio });
                 showToast("Espacio liberado.", "info");
-            } catch(e) {
-                localState[index] = bloqueLimpio;
-                renderTable(localState);
             }
             cerrarModal();
         };
 
         window.cambiarAsistencia = async function(index, valor) {
             if (isFirebaseActive) {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
+                const docRef = doc(db, 'agenda', 'bloques');
                 await updateDoc(docRef, { [`${index}.asistencia`]: valor });
             }
         };
 
         window.cambiarCalificacion = async function(index, valor) {
             if (isFirebaseActive) {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
+                const docRef = doc(db, 'agenda', 'bloques');
                 await updateDoc(docRef, { [`${index}.calificacion`]: valor });
             }
         };
