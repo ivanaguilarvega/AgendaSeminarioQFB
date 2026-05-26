@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro de Agenda - Retroalimentación Final</title>
+    <!-- Tailwind CSS para el diseño visual premium -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons para elementos visuales -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- SDK de Firebase para base de datos en tiempo real -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Configuración de Firebase (Se inicializa automáticamente con la del entorno o valores vacíos por seguridad)
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : { apiKey: "", authDomain: "", projectId: "", storageBucket: "", messagingSenderId: "", appId: "" };
+        
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-retroalimentacion';
+
+        // Solo inicializamos si la config está completa, sino simulamos estado local para pruebas
+        let db;
+        let auth;
+        let isFirebaseActive = false;
+
+        if (firebaseConfig.projectId) {
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                isFirebaseActive = true;
+            } catch (error) {
+                console.error("Error al inicializar Firebase:", error);
+            }
+        }
+
+        // Estado local de fallback si no hay base de datos conectada
+        let localState = {
+            1: { equipo: "Equipo Endonatura", proyecto: "Cúrcuma en endometriosis", asistencia: "Presente", calificacion: "95" },
+            2: { equipo: "Equipo BioTec", proyecto: "Biodegradación de PET", asistencia: "Pendiente", calificacion: "" },
+            3: { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" },
+            4: { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" },
+            5: { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" },
+            6: { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" }
+        };
+
+        const horarios = {
+            1: "01:05 PM - 01:20 PM",
+            2: "01:20 PM - 01:35 PM",
+            3: "01:35 PM - 01:50 PM",
+            4: "01:50 PM - 02:05 PM",
+            5: "02:05 PM - 02:20 PM",
+            6: "02:20 PM - 02:35 PM"
+        };
+
+        // Identificador de usuario único para persistencia local
+        const myUserId = localStorage.getItem('agenda_user_id') || 'usr_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('agenda_user_id', myUserId);
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initApp();
+        });
+
+        async function initApp() {
+            lucide.createIcons();
+            setupUIEventListeners();
+
+            if (isFirebaseActive) {
+                // Autenticación anónima obligatoria
+                try {
+                    await signInAnonymously(auth);
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            listenToDatabase();
+                        }
+                    });
+                } catch (e) {
+                    console.error("Error de autenticación:", e);
+                    renderTable(localState);
+                }
+            } else {
+                // Modo simulación local interactiva
+                showToast("Modo demostración local activo. Los cambios se guardarán en tu navegador.", "info");
+                renderTable(localState);
+            }
+        }
+
+        // Escuchar cambios de la base de datos en tiempo real
+        function listenToDatabase() {
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
+            onSnapshot(docRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    const data = snapshot.data();
+                    renderTable(data);
+                } else {
+                    // Si el documento en la nube no existe, lo inicializamos con el estado vacío
+                    setDoc(docRef, localState);
+                    renderTable(localState);
+                }
+            }, (error) => {
+                console.error("Error al leer base de datos remota:", error);
+                showToast("Error de conexión. Usando almacenamiento local alternativo.", "error");
+                renderTable(localState);
+            });
+        }
+
+        // Renderizar la tabla dinámica
+        function renderTable(data) {
+            window.currentData = data;
+            const tbody = document.getElementById('agenda-tbody');
+            tbody.innerHTML = '';
+
+            for (let i = 1; i <= 6; i++) {
+                const fila = data[i] || { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" };
+                const estaOcupado = fila.equipo && fila.equipo.trim() !== "";
+                
+                const tr = document.createElement('tr');
+                tr.className = `border-b border-slate-200 transition-colors ${estaOcupado ? 'bg-slate-50/70' : 'bg-emerald-50/20 hover:bg-emerald-50/40'}`;
+
+                // Selector de colores e inputs dependiendo de si está reservado o no
+                let columnaEquipoHTML = '';
+                if (estaOcupado) {
+                    columnaEquipoHTML = `
+                        <div class="flex items-center justify-between bg-emerald-100/60 border border-emerald-200 text-emerald-900 rounded-lg px-3 py-2">
+                            <div class="font-semibold flex items-center gap-2">
+                                <i data-lucide="users" class="w-4 h-4 text-emerald-700"></i>
+                                <span>${escapeHTML(fila.equipo)}</span>
+                            </div>
+                            <button onclick="liberarEspacio(${i})" class="text-xs text-emerald-700 hover:text-red-600 font-medium flex items-center gap-1 transition-colors bg-white/60 hover:bg-white px-2 py-1 rounded border border-emerald-200/50">
+                                <i data-lucide="x" class="w-3 h-3"></i> Liberar
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    columnaEquipoHTML = `
+                        <div class="flex gap-2">
+                            <input type="text" id="input-equipo-${i}" placeholder="Nombre de tu equipo..." class="w-full bg-white border border-emerald-200 rounded-lg px-3 py-1.5 text-slate-800 font-medium placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <button onclick="reservarEspacio(${i})" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-4 py-2 rounded-lg transition-all shadow-sm flex items-center gap-1">
+                                <i data-lucide="calendar-plus" class="w-3.5 h-3.5"></i> Reservar
+                            </button>
+                        </div>
+                    `;
+                }
+
+                tr.innerHTML = `
+                    <td class="p-3 border-r border-slate-200 text-center text-xs font-mono bg-slate-100 text-slate-400 font-bold">${i}</td>
+                    <td class="p-3 border-r border-slate-200 font-semibold text-slate-800">
+                        <span class="flex items-center gap-1.5">
+                            <i data-lucide="clock" class="w-4 h-4 text-slate-400"></i>
+                            ${horarios[i]}
+                        </span>
+                    </td>
+                    <td class="p-3 border-r border-slate-200">${columnaEquipoHTML}</td>
+                    <td class="p-3 border-r border-slate-200">
+                        ${estaOcupado 
+                            ? `<span class="text-slate-700 font-medium flex items-center gap-1.5"><i data-lucide="file-text" class="w-4 h-4 text-slate-400"></i>${escapeHTML(fila.proyecto || 'Proyecto de investigación')}</span>` 
+                            : `<input type="text" id="input-proyecto-${i}" placeholder="Nombre corto del proyecto..." class="w-full bg-slate-50/50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs">`
+                        }
+                    </td>
+                    <td class="p-3 border-r border-slate-200 text-center">
+                        <div class="teacher-control hidden">
+                            <select onchange="cambiarAsistencia(${i}, this.value)" class="bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                                <option value="Pendiente" ${fila.asistencia === 'Pendiente' ? 'selected' : ''}>Pendiente</option>
+                                <option value="Presente" ${fila.asistencia === 'Presente' ? 'selected' : ''} class="text-emerald-600 font-bold">✓ Presente</option>
+                                <option value="Ausente" ${fila.asistencia === 'Ausente' ? 'selected' : ''} class="text-red-600 font-bold">✗ Ausente</option>
+                            </select>
+                        </div>
+                        <div class="student-view">
+                            <span class="px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                fila.asistencia === 'Presente' ? 'bg-emerald-100 text-emerald-800' : 
+                                fila.asistencia === 'Ausente' ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-500'
+                            }">
+                                ${fila.asistencia}
+                            </span>
+                        </div>
+                    </td>
+                    <td class="p-3 text-center bg-amber-50/10">
+                        <div class="teacher-control hidden">
+                            <input type="text" value="${fila.calificacion || ''}" onchange="cambiarCalificacion(${i}, this.value)" placeholder="S/N" class="w-20 text-center bg-white border border-amber-300 rounded px-2 py-1 text-xs font-mono text-amber-900 focus:ring-2 focus:ring-amber-500">
+                        </div>
+                        <div class="student-view">
+                            <span class="font-mono font-bold text-sm ${fila.calificacion ? 'text-amber-700' : 'text-slate-300'}">
+                                ${fila.calificacion ? fila.calificacion + ' / 100' : '—'}
+                            </span>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            }
+
+            // Agregar fila del colchón de tiempo final
+            const trCierre = document.createElement('tr');
+            trCierre.className = "bg-slate-50 text-slate-500 text-xs";
+            trCierre.innerHTML = `
+                <td class="p-3 border-r border-slate-100 text-center font-mono">-</td>
+                <td class="p-3 border-r border-slate-100 font-medium italic">02:35 PM - 02:55 PM</td>
+                <td colspan="4" class="p-4 italic font-medium text-slate-400 bg-slate-50 flex items-center gap-2">
+                    <i data-lucide="alert-circle" class="w-4 h-4 text-slate-400 flex-shrink-0"></i>
+                    <span>Tiempo de colchón para contingencias, cierre de sesión, aclaraciones individuales y firma electrónica del acta de calificaciones finales.</span>
+                </td>
+            `;
+            tbody.appendChild(trCierre);
+
+            // Refrescar iconos cargados dinámicamente
+            lucide.createIcons();
+            
+            // Mantener visibilidad de roles activa
+            actualizarVistasPorRol();
+        }
+
+        // Acciones interactivas
+        window.reservarEspacio = async function(index) {
+            const inputEquipo = document.getElementById(`input-equipo-${index}`);
+            const inputProyecto = document.getElementById(`input-proyecto-${index}`);
+            
+            const equipoVal = inputEquipo ? inputEquipo.value.trim() : "";
+            const proyectoVal = inputProyecto ? inputProyecto.value.trim() : "";
+
+            if (!equipoVal) {
+                showToast("Por favor ingresa el nombre de tu equipo para reservar.", "warning");
+                return;
+            }
+
+            const nuevoBloque = {
+                ...window.currentData[index],
+                equipo: equipoVal,
+                proyecto: proyectoVal || "Proyecto General",
+                asistencia: "Pendiente",
+                calificacion: ""
+            };
+
+            const dataActualizada = { ...window.currentData, [index]: nuevoBloque };
+
+            if (isFirebaseActive) {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
+                await updateDoc(docRef, { [index]: nuevoBloque });
+            } else {
+                localState = dataActualizada;
+                renderTable(localState);
+            }
+            showToast("¡Espacio reservado con éxito!", "success");
+        };
+
+        window.liberarEspacio = async function(index) {
+            // Confirmación personalizada en pantalla
+            const confirmar = confirm("¿Estás seguro de que deseas liberar este horario para que otro equipo lo reserve?");
+            if (!confirmar) return;
+
+            const bloqueLimpio = {
+                equipo: "",
+                proyecto: "",
+                asistencia: "Pendiente",
+                calificacion: ""
+            };
+
+            const dataActualizada = { ...window.currentData, [index]: bloqueLimpio };
+
+            if (isFirebaseActive) {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
+                await updateDoc(docRef, { [index]: bloqueLimpio });
+            } else {
+                localState = dataActualizada;
+                renderTable(localState);
+            }
+            showToast("Horario liberado correctamente.", "info");
+        };
+
+        window.cambiarAsistencia = async function(index, valor) {
+            const nuevoBloque = {
+                ...window.currentData[index],
+                asistencia: valor
+            };
+            if (isFirebaseActive) {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
+                await updateDoc(docRef, { [index]: nuevoBloque });
+            } else {
+                localState[index].asistencia = valor;
+                renderTable(localState);
+            }
+            showToast("Asistencia actualizada.", "success");
+        };
+
+        window.cambiarCalificacion = async function(index, valor) {
+            const nuevoBloque = {
+                ...window.currentData[index],
+                calificacion: valor
+            };
+            if (isFirebaseActive) {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
+                await updateDoc(docRef, { [index]: nuevoBloque });
+            } else {
+                localState[index].calificacion = valor;
+                renderTable(localState);
+            }
+            showToast("Calificación guardada.", "success");
+        };
+
+        // Utilidades de la interfaz de usuario
+        function setupUIEventListeners() {
+            const btnEstudiante = document.getElementById('btn-rol-estudiante');
+            const btnProfesor = document.getElementById('btn-rol-profesor');
+
+            btnEstudiante.addEventListener('click', () => setRol('estudiante'));
+            btnProfesor.addEventListener('click', () => {
+                const pass = prompt("Introduce la contraseña de profesor:");
+                if (pass === "cucei") {
+                    setRol('profesor');
+                } else {
+                    showToast("Contraseña incorrecta. Pista: es 'cucei'", "error");
+                }
+            });
+        }
+
+        function setRol(rol) {
+            localStorage.setItem('agenda_rol', rol);
+            actualizarVistasPorRol();
+            showToast(`Vista de ${rol === 'profesor' ? 'Profesor Activada' : 'Estudiante'}`, "info");
+        }
+
+        function actualizarVistasPorRol() {
+            const rol = localStorage.getItem('agenda_rol') || 'estudiante';
+            const studentElems = document.querySelectorAll('.student-view');
+            const teacherElems = document.querySelectorAll('.teacher-control');
+            const btnEstudiante = document.getElementById('btn-rol-estudiante');
+            const btnProfesor = document.getElementById('btn-rol-profesor');
+            const panelProfesorInfo = document.getElementById('profesor-badge');
+
+            if (rol === 'profesor') {
+                studentElems.forEach(el => el.classList.add('hidden'));
+                teacherElems.forEach(el => el.classList.remove('hidden'));
+                btnProfesor.classList.add('bg-amber-600', 'text-white');
+                btnProfesor.classList.remove('bg-white', 'text-slate-700');
+                btnEstudiante.classList.remove('bg-emerald-600', 'text-white');
+                btnEstudiante.classList.add('bg-white', 'text-slate-700');
+                panelProfesorInfo.classList.remove('hidden');
+            } else {
+                studentElems.forEach(el => el.classList.remove('hidden'));
+                teacherElems.forEach(el => el.classList.add('hidden'));
+                btnEstudiante.classList.add('bg-emerald-600', 'text-white');
+                btnEstudiante.classList.remove('bg-white', 'text-slate-700');
+                btnProfesor.classList.remove('bg-amber-600', 'text-white');
+                btnProfesor.classList.add('bg-white', 'text-slate-700');
+                panelProfesorInfo.classList.add('hidden');
+            }
+        }
+
+        function showToast(mensaje, tipo = "success") {
+            const toast = document.getElementById('toast');
+            const toastText = document.getElementById('toast-text');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastText.textContent = mensaje;
+            
+            // Remover colores anteriores
+            toast.className = "fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ";
+            
+            if (tipo === "success") {
+                toast.classList.add("bg-emerald-900", "text-emerald-50");
+                toastIcon.innerHTML = `<i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400"></i>`;
+            } else if (tipo === "error") {
+                toast.classList.add("bg-red-900", "text-red-50");
+                toastIcon.innerHTML = `<i data-lucide="alert-octagon" class="w-5 h-5 text-red-400"></i>`;
+            } else if (tipo === "warning") {
+                toast.classList.add("bg-amber-950", "text-amber-100");
+                toastIcon.innerHTML = `<i data-lucide="alert-triangle" class="w-5 h-5 text-amber-400"></i>`;
+            } else {
+                toast.classList.add("bg-slate-900", "text-slate-100");
+                toastIcon.innerHTML = `<i data-lucide="info" class="w-5 h-5 text-sky-400"></i>`;
+            }
+
+            lucide.createIcons();
+
+            // Ocultar a los 4 segundos
+            setTimeout(() => {
+                toast.classList.add("translate-y-12", "opacity-0");
+            }, 4000);
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, 
+                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+            );
+        }
+    </script>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans">
+
+    <div class="max-w-6xl mx-auto p-4 md:p-8">
+        
+        <!-- Alertas de retroalimentación flotante (Toast) -->
+        <div id="toast" class="fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-12 opacity-0">
+            <div id="toast-icon"></div>
+            <span id="toast-text" class="text-sm font-semibold"></span>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
+            
+            <!-- Banner Encabezado -->
+            <div class="bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 text-white p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div>
+                    <div class="flex items-center gap-3">
+                        <span class="bg-white/20 text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-sm">
+                            CUCEI - UDG
+                        </span>
+                        <span id="profesor-badge" class="bg-amber-500 text-slate-900 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider hidden flex items-center gap-1">
+                            <i data-lucide="shield" class="w-3.5 h-3.5"></i> Profesor Activo
+                        </span>
+                    </div>
+                    <h1 class="text-3xl font-extrabold tracking-tight mt-3">Agenda de Retroalimentación Final</h1>
+                    <p class="text-emerald-100 text-sm mt-1.5 font-medium">Asignación de bloques para la revisión del Protocolo de Investigación</p>
+                </div>
+                
+                <!-- Selector de Roles para pruebas -->
+                <div class="bg-white/10 p-1.5 rounded-xl backdrop-blur-md flex gap-1 border border-white/10 self-stretch md:self-auto">
+                    <button id="btn-rol-estudiante" class="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all">
+                        <i data-lucide="user" class="w-4 h-4"></i> Estudiante
+                    </button>
+                    <button id="btn-rol-profesor" class="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all">
+                        <i data-lucide="key" class="w-4 h-4"></i> Profesor (Admin)
+                    </button>
+                </div>
+            </div>
+
+            <!-- Panel de Instrucciones Directas -->
+            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="flex gap-3 bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
+                        <span class="bg-emerald-100 text-emerald-800 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">1</span>
+                        <div>
+                            <h4 class="font-bold text-slate-800 text-sm">Elige tu horario</h4>
+                            <p class="text-slate-500 text-xs mt-1">Busquen un bloque que esté disponible y reserven su lugar en equipo.</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-3 bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
+                        <span class="bg-emerald-100 text-emerald-800 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">2</span>
+                        <div>
+                            <h4 class="font-bold text-slate-800 text-sm">Respeto y Cohesión</h4>
+                            <p class="text-slate-500 text-xs mt-1">No modifiquen o liberen los bloques agendados previamente por otros equipos.</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-3 bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
+                        <span class="bg-amber-100 text-amber-800 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">
+                            <i data-lucide="award" class="w-4 h-4"></i>
+                        </span>
+                        <div>
+                            <h4 class="font-bold text-slate-800 text-sm">Puntualidad Absoluta</h4>
+                            <p class="text-slate-500 text-xs mt-1">Se otorgarán exactamente 15 minutos por equipo. Estar listos 5 minutos antes.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla de Datos -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse min-w-[900px]">
+                    <thead>
+                        <tr class="bg-slate-100/80 text-slate-600 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
+                            <th class="p-4 border-r border-slate-200 w-16 text-center">Fila</th>
+                            <th class="p-4 border-r border-slate-200 w-52">Bloque de Tiempo</th>
+                            <th class="p-4 border-r border-slate-200 w-72 bg-emerald-50/50 text-emerald-900">Equipo Registrado</th>
+                            <th class="p-4 border-r border-slate-200 w-64">Nombre del Proyecto</th>
+                            <th class="p-4 border-r border-slate-200 w-36 text-center">Asistencia</th>
+                            <th class="p-4 text-center w-40 bg-amber-50/30 text-amber-900">Nota Final</th>
+                        </tr>
+                    </thead>
+                    <tbody id="agenda-tbody" class="text-sm text-slate-700">
+                        <!-- El script renderizará aquí los bloques dinámicos -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Sección de información del sistema en tiempo real -->
+            <div class="bg-slate-50 p-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-slate-500">
+                <div class="flex items-center gap-1.5 font-medium">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Conexión activa con la base de datos remota</span>
+                </div>
+                <div class="flex items-center gap-1">
+                    <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                    <span>La contraseña predeterminada para el rol de Profesor es <strong class="bg-slate-200 px-1.5 py-0.5 rounded text-slate-800 font-mono">cucei</strong></span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</body>
+</html>
