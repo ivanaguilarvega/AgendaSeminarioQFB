@@ -24,26 +24,15 @@
         const ADMIN_PASSWORD = "Seminario2026B"; 
 
         // Configuración de Firebase (Se inicializa automáticamente en el entorno de pruebas)
-        const firebaseConfig = typeof __firebase_config !== 'undefined' 
-            ? JSON.parse(__firebase_config) 
-            : { apiKey: "", authDomain: "", projectId: "", storageBucket: "", messagingSenderId: "", appId: "" };
-        
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-retroalimentacion';
-
-        let db;
-        let auth;
-        let isFirebaseActive = false;
-
-        if (firebaseConfig.projectId) {
-            try {
-                const app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-                isFirebaseActive = true;
-            } catch (error) {
-                console.error("Error al inicializar Firebase:", error);
-            }
-        }
+       aseConfig = {
+  apiKey: "AIzaSyBPLasqnOk20oYMwJ7u_cNMZEvnO8Yn9IA",
+  authDomain: "agenda-seminario.firebaseapp.com",
+  projectId: "agenda-seminario",
+  storageBucket: "agenda-seminario.firebasestorage.app",
+  messagingSenderId: "107827933586",
+  appId: "1:107827933586:web:9a84b299e89eefd32d514b",
+  measurementId: "G-QEWX6GXHZP"
+};
 
         // Estado inicial completamente vacío (Sin datos de prueba)
         let localState = {
