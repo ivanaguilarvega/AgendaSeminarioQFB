@@ -15,26 +15,46 @@
         import { getFirestore, doc, onSnapshot, setDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ============================================================
-        // CONFIGURACIÓN DE CORREO DE NOTIFICACIONES (WEB3FORMS)
-        // Obtén tu clave gratuita en https://web3forms.com/ y colócala aquí:
+        // 1. CONFIGURACIÓN DE CORREO DE NOTIFICACIONES (WEB3FORMS)
+        // Opcional: Si obtienes tu clave de https://web3forms.com/, pégala aquí:
         // ============================================================
-        const EMAIL_ACCESS_KEY = 89cd20c9-7f26-440a-929e-e90c2542b8e3; 
+        const EMAIL_ACCESS_KEY = ""; 
 
-        // Configuración de la contraseña de Administrador (Profesor)
+        // ============================================================
+        // 2. CONFIGURACIÓN DE BASE DE DATOS REAL (FIREBASE)
+        // Credenciales integradas del proyecto "agenda-seminario"
+        // ============================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyBPLasqnOk20oYMwJ7u_cNMZEvnO8Yn9IA",
+            authDomain: "agenda-seminario.firebaseapp.com",
+            projectId: "agenda-seminario",
+            storageBucket: "agenda-seminario.firebasestorage.app",
+            messagingSenderId: "107827933586",
+            appId: "1:107827933586:web:9a84b299e89eefd32d514b",
+            measurementId: "G-QEWX6GXHZP"
+        };
+
+        // Contraseña de Administrador (Profesor)
         const ADMIN_PASSWORD = "Seminario2026B"; 
+        
+        // ID de la aplicación para estructuración de datos en la nube
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'agenda-seminario';
 
-        // Configuración de Firebase (Se inicializa automáticamente en el entorno de pruebas)
-       aseConfig = {
-  apiKey: "AIzaSyBPLasqnOk20oYMwJ7u_cNMZEvnO8Yn9IA",
-  authDomain: "agenda-seminario.firebaseapp.com",
-  projectId: "agenda-seminario",
-  storageBucket: "agenda-seminario.firebasestorage.app",
-  messagingSenderId: "107827933586",
-  appId: "1:107827933586:web:9a84b299e89eefd32d514b",
-  measurementId: "G-QEWX6GXHZP"
-};
+        let db;
+        let auth;
+        let isFirebaseActive = false;
 
-        // Estado inicial completamente vacío (Sin datos de prueba)
+        // Validación para inicializar Firebase de forma segura
+        try {
+            const app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            isFirebaseActive = true;
+        } catch (error) {
+            console.error("Error al inicializar Firebase:", error);
+        }
+
+        // Estado inicial de las 6 filas vacías
         let localState = {
             1: { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" },
             2: { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" },
@@ -53,16 +73,9 @@
             6: "02:20 PM - 02:35 PM"
         };
 
-        // Identificador de usuario único para persistencia local
+        // Identificador de usuario único en el navegador
         const myUserId = localStorage.getItem('agenda_user_id') || 'usr_' + Math.random().toString(36).substr(2, 9);
         localStorage.setItem('agenda_user_id', myUserId);
-
-        // Control de cambio de contraseña del administrador
-        const savedPassHash = localStorage.getItem('agenda_saved_pass');
-        if (savedPassHash && savedPassHash !== ADMIN_PASSWORD) {
-            localStorage.removeItem('agenda_rol');
-            localStorage.removeItem('agenda_saved_pass');
-        }
 
         window.addEventListener('DOMContentLoaded', () => {
             initApp();
@@ -71,12 +84,6 @@
         async function initApp() {
             lucide.createIcons();
             setupUIEventListeners();
-
-            // Cargar estado inicial desde el localStorage si no hay base de datos remota
-            const guardadoLocal = localStorage.getItem('agenda_local_state_backup');
-            if (guardadoLocal && !isFirebaseActive) {
-                localState = JSON.parse(guardadoLocal);
-            }
 
             if (isFirebaseActive) {
                 try {
@@ -91,79 +98,47 @@
                     renderTable(localState);
                 }
             } else {
-                showToast("Modo sin base de datos activa. Los cambios se guardarán localmente.", "info");
+                showToast("Modo local activo temporalmente.", "info");
                 renderTable(localState);
             }
         }
 
-        // Escuchar cambios de la base de datos en tiempo real
+        // Escucha en tiempo real de Firestore siguiendo la estructura de seguridad recomendada
         function listenToDatabase() {
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
             onSnapshot(docRef, (snapshot) => {
                 if (snapshot.exists()) {
-                    const data = snapshot.data();
-                    renderTable(data);
+                    renderTable(snapshot.data());
                 } else {
                     setDoc(docRef, localState);
                     renderTable(localState);
                 }
             }, (error) => {
-                console.error("Error al leer base de datos remota:", error);
-                showToast("Error de conexión. Usando almacenamiento local alternativo.", "error");
+                console.error("Error al leer Firestore:", error);
                 renderTable(localState);
             });
         }
 
-        // Guardar respaldo local cuando no hay Firebase conectado
-        function guardarRespaldoLocal(data) {
-            if (!isFirebaseActive) {
-                localStorage.setItem('agenda_local_state_backup', JSON.stringify(data));
-            }
-        }
-
-        // Función para enviar correos de notificación usando Web3Forms API
         async function enviarCorreoSincrono(bloqueIndex, equipo, proyecto) {
-            if (!EMAIL_ACCESS_KEY || EMAIL_ACCESS_KEY.includes("ESCRIBE_AQUI")) {
-                console.log("Notificación por correo omitida (No se configuró la API Key).");
-                return;
-            }
-
-            const bloqueHorario = horarios[bloqueIndex];
-            const data = {
-                access_key: EMAIL_ACCESS_KEY,
-                subject: `📅 Nueva Reserva: Bloque ${bloqueHorario} - ${equipo}`,
-                from_name: "Agenda CUCEI",
-                message: `Se ha registrado una nueva cita de retroalimentación en la plataforma.\n\n` +
-                         `• Bloque Horario: ${bloqueHorario}\n` +
-                         `• Equipo: ${equipo}\n` +
-                         `• Proyecto: ${proyecto}\n\n` +
-                         `Fecha de registro: ${new Date().toLocaleString('es-MX')}`
-            };
-
+            if (!EMAIL_ACCESS_KEY || EMAIL_ACCESS_KEY === "") return;
             try {
-                const response = await fetch('https://api.web3forms.com/submit', {
+                await fetch('https://api.web3forms.com/submit', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(data)
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        access_key: EMAIL_ACCESS_KEY,
+                        subject: `📅 Nueva Reserva: Bloque ${horarios[bloqueIndex]} - ${equipo}`,
+                        from_name: "Agenda CUCEI",
+                        message: `Nueva cita registrada:\n• Bloque: ${horarios[bloqueIndex]}\n• Equipo: ${equipo}\n• Proyecto: ${proyecto}`
+                    })
                 });
-                
-                if (response.ok) {
-                    console.log("Notificación por correo enviada con éxito.");
-                } else {
-                    console.warn("No se pudo procesar el envío de correo.");
-                }
-            } catch (err) {
-                console.error("Error al intentar enviar el correo de notificación:", err);
-            }
+            } catch (err) { console.error("Error enviando notificación:", err); }
         }
 
-        // Renderizar la tabla dinámica
         function renderTable(data) {
             window.currentData = data;
             const tbody = document.getElementById('agenda-tbody');
+            if(!tbody) return;
             tbody.innerHTML = '';
 
             for (let i = 1; i <= 6; i++) {
@@ -176,12 +151,12 @@
                 let columnaEquipoHTML = '';
                 if (estaOcupado) {
                     columnaEquipoHTML = `
-                        <div class="flex items-center justify-between bg-emerald-100/60 border border-emerald-200 text-emerald-900 rounded-lg px-3 py-2">
+                        <div class="flex items-center justify-between bg-emerald-100/60 border border-emerald-200 text-emerald-900 rounded-lg px-3 py-2 shadow-sm">
                             <div class="font-semibold flex items-center gap-2">
                                 <i data-lucide="users" class="w-4 h-4 text-emerald-700"></i>
                                 <span class="truncate max-w-[200px]" title="${escapeHTML(fila.equipo)}">${escapeHTML(fila.equipo)}</span>
                             </div>
-                            <button onclick="prepararLiberarEspacio(${i})" class="text-xs text-emerald-700 hover:text-red-600 font-medium flex items-center gap-1 transition-colors bg-white/80 hover:bg-white px-2 py-1 rounded border border-emerald-200/50 flex-shrink-0">
+                            <button onclick="prepararLiberarEspacio(${i})" class="text-xs text-emerald-700 hover:text-red-600 font-medium flex items-center gap-1 transition-colors bg-white/80 hover:bg-white px-2.5 py-1 rounded border border-emerald-200/50 flex-shrink-0 shadow-xs">
                                 <i data-lucide="x" class="w-3 h-3"></i> Liberar
                             </button>
                         </div>
@@ -189,8 +164,8 @@
                 } else {
                     columnaEquipoHTML = `
                         <div class="flex gap-2">
-                            <input type="text" id="input-equipo-${i}" placeholder="Nombre de tu equipo..." class="w-full bg-white border border-emerald-200 rounded-lg px-3 py-1.5 text-slate-800 font-medium placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm">
-                            <button onclick="reservarEspacio(${i})" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-3 py-2 rounded-lg transition-all shadow-sm flex items-center gap-1 flex-shrink-0">
+                            <input type="text" id="input-equipo-${i}" placeholder="Nombre de tu equipo..." class="w-full bg-white border border-emerald-200 rounded-lg px-3 py-1.5 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm shadow-xs">
+                            <button onclick="reservarEspacio(${i})" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-3.5 py-2 rounded-lg transition-all shadow-md flex items-center gap-1 flex-shrink-0">
                                 <i data-lucide="calendar-plus" class="w-3.5 h-3.5"></i> Reservar
                             </button>
                         </div>
@@ -199,74 +174,56 @@
 
                 tr.innerHTML = `
                     <td class="p-3 border-r border-slate-200 text-center text-xs font-mono bg-slate-100 text-slate-400 font-bold">${i}</td>
-                    <td class="p-3 border-r border-slate-200 font-semibold text-slate-800">
-                        <span class="flex items-center gap-1.5 whitespace-nowrap">
-                            <i data-lucide="clock" class="w-4 h-4 text-slate-400"></i>
+                    <td class="p-3 border-r border-slate-200 font-semibold text-slate-800 whitespace-nowrap">
+                        <span class="flex items-center gap-1.5 justify-center">
+                            <i data-lucide="clock" class="w-3.5 h-3.5 text-slate-400"></i>
                             ${horarios[i]}
                         </span>
                     </td>
                     <td class="p-3 border-r border-slate-200">${columnaEquipoHTML}</td>
                     <td class="p-3 border-r border-slate-200">
                         ${estaOcupado 
-                            ? `<span class="text-slate-700 font-medium flex items-center gap-1.5" title="${escapeHTML(fila.proyecto)}"><i data-lucide="file-text" class="w-4 h-4 text-slate-400 flex-shrink-0"></i><span class="truncate max-w-[180px]">${escapeHTML(fila.proyecto || 'Proyecto de investigación')}</span></span>` 
-                            : `<input type="text" id="input-proyecto-${i}" placeholder="Nombre corto del proyecto..." class="w-full bg-slate-50/50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs">`
+                            ? `<span class="text-slate-700 font-medium flex items-center gap-1.5" title="${escapeHTML(fila.proyecto)}"><i data-lucide="file-text" class="w-4 h-4 text-slate-400"></i><span class="truncate max-w-[180px]">${escapeHTML(fila.proyecto || 'Proyecto')}</span></span>` 
+                            : `<input type="text" id="input-proyecto-${i}" placeholder="Nombre del proyecto..." class="w-full bg-slate-50/50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs shadow-xs">`
                         }
                     </td>
                     <td class="p-3 border-r border-slate-200 text-center">
                         <div class="teacher-control hidden">
-                            <select onchange="cambiarAsistencia(${i}, this.value)" class="bg-white border border-slate-200 rounded px-2 py-1 text-xs text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                            <select onchange="cambiarAsistencia(${i}, this.value)" class="bg-white border border-slate-200 rounded px-2.5 py-1 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500">
                                 <option value="Pendiente" ${fila.asistencia === 'Pendiente' ? 'selected' : ''}>Pendiente</option>
-                                <option value="Presente" ${fila.asistencia === 'Presente' ? 'selected' : ''} class="text-emerald-600 font-bold">✓ Presente</option>
-                                <option value="Ausente" ${fila.asistencia === 'Ausente' ? 'selected' : ''} class="text-red-600 font-bold">✗ Ausente</option>
+                                <option value="Presente" ${fila.asistencia === 'Presente' ? 'selected' : ''}>✓ Presente</option>
+                                <option value="Ausente" ${fila.asistencia === 'Ausente' ? 'selected' : ''}>✗ Ausente</option>
                             </select>
                         </div>
                         <div class="student-view">
-                            <span class="px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                fila.asistencia === 'Presente' ? 'bg-emerald-100 text-emerald-800' : 
-                                fila.asistencia === 'Ausente' ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-500'
-                            }">
-                                ${fila.asistencia}
-                            </span>
+                            <span class="px-2.5 py-1 rounded-full text-xs font-semibold ${fila.asistencia === 'Presente' ? 'bg-emerald-100 text-emerald-800' : fila.asistencia === 'Ausente' ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-500'}">${fila.asistencia}</span>
                         </div>
                     </td>
                     <td class="p-3 text-center bg-amber-50/10">
                         <div class="teacher-control hidden">
-                            <input type="text" value="${fila.calificacion || ''}" onchange="cambiarCalificacion(${i}, this.value)" placeholder="S/N" class="w-20 text-center bg-white border border-amber-300 rounded px-2 py-1 text-xs font-mono text-amber-900 focus:ring-2 focus:ring-amber-500">
+                            <input type="text" value="${fila.calificacion || ''}" onchange="cambiarCalificacion(${i}, this.value)" placeholder="S/N" class="w-20 text-center bg-white border border-amber-300 rounded px-2 py-1 text-xs font-mono text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-500">
                         </div>
                         <div class="student-view">
-                            <span class="font-mono font-bold text-sm ${fila.calificacion ? 'text-amber-700' : 'text-slate-300'}">
-                                ${fila.calificacion ? fila.calificacion + ' / 100' : '—'}
-                            </span>
+                            <span class="font-mono font-bold text-sm ${fila.calificacion ? 'text-amber-700' : 'text-slate-300'}">${fila.calificacion ? fila.calificacion + ' / 100' : '—'}</span>
                         </div>
                     </td>
                 `;
                 tbody.appendChild(tr);
             }
 
-            // Agregar fila del colchón de tiempo final
+            // Fila colchón final
             const trCierre = document.createElement('tr');
             trCierre.className = "bg-slate-50 text-slate-500 text-xs";
-            trCierre.innerHTML = `
-                <td class="p-3 border-r border-slate-100 text-center font-mono">-</td>
-                <td class="p-3 border-r border-slate-100 font-medium italic">02:35 PM - 02:55 PM</td>
-                <td colspan="4" class="p-4 italic font-medium text-slate-400 bg-slate-50">
-                    <div class="flex items-center gap-2">
-                        <i data-lucide="alert-circle" class="w-4 h-4 text-slate-400 flex-shrink-0"></i>
-                        <span>Tiempo de colchón para contingencias, cierre de sesión, aclaraciones individuales y firma del acta.</span>
-                    </div>
-                </td>
-            `;
+            trCierre.innerHTML = `<td class="p-3 border-r border-slate-100 text-center font-mono">-</td><td class="p-3 border-r border-slate-100 font-medium italic text-center">02:35 PM - 02:55 PM</td><td colspan="4" class="p-4 italic font-medium text-slate-400 bg-slate-50">Tiempo de colchón para contingencias, aclaraciones individuales y firma de actas.</td>`;
             tbody.appendChild(trCierre);
 
             lucide.createIcons();
             actualizarVistasPorRol();
         }
 
-        // Acciones interactivas de Reserva
         window.reservarEspacio = async function(index) {
             const inputEquipo = document.getElementById(`input-equipo-${index}`);
             const inputProyecto = document.getElementById(`input-proyecto-${index}`);
-            
             const equipoVal = inputEquipo ? inputEquipo.value.trim() : "";
             const proyectoVal = inputProyecto ? inputProyecto.value.trim() : "";
 
@@ -275,116 +232,74 @@
                 return;
             }
 
-            const nuevoBloque = {
-                ...window.currentData[index],
-                equipo: equipoVal,
-                proyecto: proyectoVal || "Proyecto General",
-                asistencia: "Pendiente",
-                calificacion: ""
-            };
-
-            const dataActualizada = { ...window.currentData, [index]: nuevoBloque };
+            const nuevoBloque = { equipo: equipoVal, proyecto: proyectoVal || "Proyecto General", asistencia: "Pendiente", calificacion: "" };
 
             if (isFirebaseActive) {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
                 await updateDoc(docRef, { [index]: nuevoBloque });
             } else {
-                localState = dataActualizada;
-                guardarRespaldoLocal(localState);
+                localState[index] = nuevoBloque;
                 renderTable(localState);
             }
-
             showToast("¡Espacio reservado con éxito!", "success");
-
-            // Enviar notificación por correo de forma asíncrona (no bloquea la pantalla del alumno)
             enviarCorreoSincrono(index, equipoVal, proyectoVal || "Proyecto General");
         };
 
-        // Modal de confirmación personalizado (Reemplaza confirm() para evitar errores en iframes)
         let bloqueParaLiberar = null;
         window.prepararLiberarEspacio = function(index) {
             bloqueParaLiberar = index;
             document.getElementById('custom-modal').classList.remove('hidden');
             document.getElementById('custom-modal').classList.add('flex');
         }
-
         window.cerrarModal = function() {
             document.getElementById('custom-modal').classList.add('hidden');
             document.getElementById('custom-modal').classList.remove('flex');
             bloqueParaLiberar = null;
         }
-
         window.confirmarLiberarEspacio = async function() {
             if (bloqueParaLiberar === null) return;
             const index = bloqueParaLiberar;
-
-            const bloqueLimpio = {
-                equipo: "",
-                proyecto: "",
-                asistencia: "Pendiente",
-                calificacion: ""
-            };
-
-            const dataActualizada = { ...window.currentData, [index]: bloqueLimpio };
+            const bloqueLimpio = { equipo: "", proyecto: "", asistencia: "Pendiente", calificacion: "" };
 
             if (isFirebaseActive) {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
                 await updateDoc(docRef, { [index]: bloqueLimpio });
             } else {
-                localState = dataActualizada;
-                guardarRespaldoLocal(localState);
+                localState[index] = bloqueLimpio;
                 renderTable(localState);
             }
-
             cerrarModal();
-            showToast("Horario liberado correctamente.", "info");
+            showToast("Horario liberado.", "info");
         };
 
         window.cambiarAsistencia = async function(index, valor) {
-            const nuevoBloque = {
-                ...window.currentData[index],
-                asistencia: valor
-            };
             if (isFirebaseActive) {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
-                await updateDoc(docRef, { [index]: nuevoBloque });
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
+                await updateDoc(docRef, { [`${index}.asistencia`]: valor });
             } else {
                 localState[index].asistencia = valor;
-                guardarRespaldoLocal(localState);
                 renderTable(localState);
             }
-            showToast("Asistencia actualizada.", "success");
         };
 
         window.cambiarCalificacion = async function(index, valor) {
-            const nuevoBloque = {
-                ...window.currentData[index],
-                calificacion: valor
-            };
             if (isFirebaseActive) {
-                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final');
-                await updateDoc(docRef, { [index]: nuevoBloque });
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'agenda_final', 'bloques');
+                await updateDoc(docRef, { [`${index}.calificacion`]: valor });
             } else {
                 localState[index].calificacion = valor;
-                guardarRespaldoLocal(localState);
                 renderTable(localState);
             }
-            showToast("Calificación guardada.", "success");
         };
 
-        // Configuración de interfaz de usuario
         function setupUIEventListeners() {
-            const btnEstudiante = document.getElementById('btn-rol-estudiante');
-            const btnProfesor = document.getElementById('btn-rol-profesor');
-
-            btnEstudiante.addEventListener('click', () => setRol('estudiante'));
-            btnProfesor.addEventListener('click', () => {
+            document.getElementById('btn-rol-estudiante').addEventListener('click', () => setRol('estudiante'));
+            document.getElementById('btn-rol-profesor').addEventListener('click', () => {
                 const pass = prompt("Introduce la contraseña de acceso de profesor (Seminario + ciclo académico):");
-                if (pass && pass === ADMIN_PASSWORD) {
-                    localStorage.setItem('agenda_saved_pass', ADMIN_PASSWORD);
+                if (pass === ADMIN_PASSWORD) {
                     setRol('profesor');
                 } else if (pass !== null) {
-                    showToast("Contraseña incorrecta. Inténtalo de nuevo.", "error");
+                    showToast("Contraseña incorrecta.", "error");
                 }
             });
         }
@@ -392,7 +307,6 @@
         function setRol(rol) {
             localStorage.setItem('agenda_rol', rol);
             actualizarVistasPorRol();
-            showToast(`Vista de ${rol === 'profesor' ? 'Profesor Activada' : 'Estudiante'}`, "info");
         }
 
         function actualizarVistasPorRol() {
@@ -406,183 +320,101 @@
             if (rol === 'profesor') {
                 studentElems.forEach(el => el.classList.add('hidden'));
                 teacherElems.forEach(el => el.classList.remove('hidden'));
-                btnProfesor.classList.add('bg-amber-600', 'text-white');
-                btnProfesor.classList.remove('bg-white', 'text-slate-700');
-                btnEstudiante.classList.remove('bg-emerald-600', 'text-white');
-                btnEstudiante.classList.add('bg-white', 'text-slate-700');
-                panelProfesorInfo.classList.remove('hidden');
+                btnProfesor.className = "flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-amber-600 text-white shadow-sm";
+                btnEstudiante.className = "flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-white text-slate-700 hover:bg-slate-50 border border-slate-200";
+                if(panelProfesorInfo) panelProfesorInfo.classList.remove('hidden');
             } else {
                 studentElems.forEach(el => el.classList.remove('hidden'));
                 teacherElems.forEach(el => el.classList.add('hidden'));
-                btnEstudiante.classList.add('bg-emerald-600', 'text-white');
-                btnEstudiante.classList.remove('bg-white', 'text-slate-700');
-                btnProfesor.classList.remove('bg-amber-600', 'text-white');
-                btnProfesor.classList.add('bg-white', 'text-slate-700');
-                panelProfesorInfo.classList.add('hidden');
+                btnEstudiante.className = "flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 text-white shadow-sm";
+                btnProfesor.className = "flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-white text-slate-700 hover:bg-slate-50 border border-slate-200";
+                if(panelProfesorInfo) panelProfesorInfo.classList.add('hidden');
             }
         }
 
         function showToast(mensaje, tipo = "success") {
             const toast = document.getElementById('toast');
             const toastText = document.getElementById('toast-text');
-            const toastIcon = document.getElementById('toast-icon');
-
+            if(!toast || !toastText) return;
             toastText.textContent = mensaje;
             
-            toast.className = "fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 ";
+            // Colores por tipo
+            toast.className = "fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-0 opacity-100 text-white " + 
+                (tipo === 'success' ? 'bg-emerald-900' : tipo === 'error' ? 'bg-red-950' : tipo === 'warning' ? 'bg-amber-950' : 'bg-slate-900');
             
-            if (tipo === "success") {
-                toast.classList.add("bg-emerald-900", "text-emerald-50");
-                toastIcon.innerHTML = `<i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400"></i>`;
-            } else if (tipo === "error") {
-                toast.classList.add("bg-red-900", "text-red-50");
-                toastIcon.innerHTML = `<i data-lucide="alert-octagon" class="w-5 h-5 text-red-400"></i>`;
-            } else if (tipo === "warning") {
-                toast.classList.add("bg-amber-950", "text-amber-100");
-                toastIcon.innerHTML = `<i data-lucide="alert-triangle" class="w-5 h-5 text-amber-400"></i>`;
-            } else {
-                toast.classList.add("bg-slate-900", "text-slate-100");
-                toastIcon.innerHTML = `<i data-lucide="info" class="w-5 h-5 text-sky-400"></i>`;
-            }
-
-            lucide.createIcons();
-
-            setTimeout(() => {
-                toast.classList.add("translate-y-12", "opacity-0");
-            }, 4000);
+            setTimeout(() => { 
+                toast.className = "fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-12 opacity-0 hidden"; 
+            }, 3000);
         }
 
-        // Función de escape para prevenir inyección HTML de caracteres raros introducidos por alumnos
         function escapeHTML(str) {
-            return str.replace(/[&<>'"]/g, 
-                tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
-            );
+            return str ? str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)) : "";
         }
     </script>
 </head>
 <body class="bg-slate-50 min-h-screen font-sans">
 
-    <!-- Modal de Confirmación Personalizado (Sustituye al confirm() nativo del navegador) -->
+    <!-- Modal de Confirmación -->
     <div id="custom-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 transform transition-all">
-            <div class="flex items-center gap-3 text-red-600 mb-4">
-                <div class="p-2 bg-red-50 rounded-lg">
-                    <i data-lucide="alert-triangle" class="w-6 h-6"></i>
-                </div>
-                <h3 class="font-bold text-lg text-slate-900">¿Liberar horario?</h3>
-            </div>
-            <p class="text-sm text-slate-500 mb-6 leading-relaxed">
-                Estás a punto de liberar este bloque de tiempo. Esto permitirá que cualquier otro equipo de la materia se registre en este horario. ¿Deseas continuar?
-            </p>
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
+            <h3 class="font-bold text-lg text-slate-900 mb-2">¿Liberar horario?</h3>
+            <p class="text-sm text-slate-500 mb-6">Esta acción dejará disponible el bloque para que otros equipos puedan registrarse. ¿Continuar?</p>
             <div class="flex gap-3 justify-end">
-                <button onclick="cerrarModal()" class="px-4 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors">
-                    Cancelar
-                </button>
-                <button onclick="confirmarLiberarEspacio()" class="px-4 py-2 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-md transition-colors">
-                    Sí, liberar horario
-                </button>
+                <button onclick="cerrarModal()" class="px-4 py-2 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors">Cancelar</button>
+                <button onclick="confirmarLiberarEspacio()" class="px-4 py-2 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-md transition-colors">Sí, liberar</button>
             </div>
         </div>
     </div>
 
     <div class="max-w-6xl mx-auto p-4 md:p-8">
-        
-        <!-- Alertas flotantes (Toast) -->
-        <div id="toast" class="fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl transition-all duration-300 transform translate-y-12 opacity-0">
-            <div id="toast-icon"></div>
-            <span id="toast-text" class="text-sm font-semibold"></span>
-        </div>
+        <div id="toast" class="fixed bottom-5 right-5 z-50 hidden items-center gap-2 px-4 py-3 rounded-xl shadow-2xl"><span id="toast-text" class="text-sm font-semibold"></span></div>
 
         <div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
-            
-            <!-- Banner Encabezado -->
+            <!-- Banner -->
             <div class="bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 text-white p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                 <div>
                     <div class="flex items-center gap-3">
-                        <span class="bg-white/20 text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-sm">
-                            CUCEI - UDG
-                        </span>
-                        <span id="profesor-badge" class="bg-amber-500 text-slate-900 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider hidden flex items-center gap-1">
-                            <i data-lucide="shield" class="w-3.5 h-3.5"></i> Profesor Activo
-                        </span>
+                        <span class="bg-white/20 text-white px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-sm">CUCEI - UDG</span>
+                        <span id="profesor-badge" class="bg-amber-500 text-slate-900 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider hidden">Profesor Activo</span>
                     </div>
                     <h1 class="text-3xl font-extrabold tracking-tight mt-3">Agenda de Retroalimentación Final</h1>
                     <p class="text-emerald-100 text-sm mt-1.5 font-medium">Asignación de bloques para la revisión del Protocolo de Investigación</p>
                 </div>
                 
-                <!-- Selector de Roles -->
                 <div class="bg-white/10 p-1.5 rounded-xl backdrop-blur-md flex gap-1 border border-white/10 self-stretch md:self-auto">
-                    <button id="btn-rol-estudiante" class="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all">
-                        <i data-lucide="user" class="w-4 h-4"></i> Estudiante
-                    </button>
-                    <button id="btn-rol-profesor" class="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition-all">
-                        <i data-lucide="key" class="w-4 h-4"></i> Profesor (Admin)
-                    </button>
+                    <button id="btn-rol-estudiante" class="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 text-white">Estudiante</button>
+                    <button id="btn-rol-profesor" class="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-white text-slate-700">Profesor (Admin)</button>
                 </div>
             </div>
 
-            <!-- Panel de Instrucciones Directas -->
-            <div class="p-6 border-b border-slate-100 bg-slate-50/50">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="flex gap-3 bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
-                        <span class="bg-emerald-100 text-emerald-800 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">1</span>
-                        <div>
-                            <h4 class="font-bold text-slate-800 text-sm">Elige tu horario</h4>
-                            <p class="text-slate-500 text-xs mt-1">Busquen un bloque que esté disponible y reserven su lugar escribiendo su equipo.</p>
-                        </div>
-                    </div>
-                    <div class="flex gap-3 bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
-                        <span class="bg-emerald-100 text-emerald-800 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">2</span>
-                        <div>
-                            <h4 class="font-bold text-slate-800 text-sm">Respeto Colectivo</h4>
-                            <p class="text-slate-500 text-xs mt-1">No liberen ni editen bloques de tiempo seleccionados por otros equipos.</p>
-                        </div>
-                    </div>
-                    <div class="flex gap-3 bg-white p-4 rounded-xl border border-slate-200/60 shadow-sm">
-                        <span class="bg-amber-100 text-amber-800 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">
-                            <i data-lucide="award" class="w-4 h-4"></i>
-                        </span>
-                        <div>
-                            <h4 class="font-bold text-slate-800 text-sm">Puntualidad Absoluta</h4>
-                            <p class="text-slate-500 text-xs mt-1">Se otorgan estrictos 15 minutos por equipo. Conéctense o lleguen 5 minutos antes.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Tabla de Datos -->
+            <!-- Tabla de datos interactiva -->
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse min-w-[900px]">
                     <thead>
                         <tr class="bg-slate-100/80 text-slate-600 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
-                            <th class="p-4 border-r border-slate-200 w-16 text-center">Fila</th>
-                            <th class="p-4 border-r border-slate-200 w-52">Bloque de Tiempo</th>
-                            <th class="p-4 border-r border-slate-200 w-72 bg-emerald-50/50 text-emerald-900">Equipo Registrado</th>
-                            <th class="p-4 border-r border-slate-200 w-64">Nombre del Proyecto</th>
-                            <th class="p-4 border-r border-slate-200 w-36 text-center">Asistencia</th>
+                            <th class="p-4 w-16 text-center">Fila</th>
+                            <th class="p-4 w-52 text-center">Bloque de Tiempo</th>
+                            <th class="p-4 w-72 bg-emerald-50/50 text-emerald-900">Equipo Registrado</th>
+                            <th class="p-4 w-64">Nombre del Proyecto</th>
+                            <th class="p-4 w-36 text-center">Asistencia</th>
                             <th class="p-4 text-center w-40 bg-amber-50/30 text-amber-900">Nota Final</th>
                         </tr>
                     </thead>
                     <tbody id="agenda-tbody" class="text-sm text-slate-700">
-                        <!-- Carga dinámica -->
+                        <!-- Renglones dinámicos -->
                     </tbody>
                 </table>
             </div>
 
-            <!-- Sección de información en tiempo real -->
+            <!-- Panel de información institucional -->
             <div class="bg-slate-50 p-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-slate-500">
-                <div class="flex items-center gap-1.5 font-medium">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <div class="flex items-center gap-2">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                     <span>Sincronización en tiempo real activa</span>
                 </div>
-                <div class="flex items-center gap-1">
-                    <i data-lucide="info" class="w-3.5 h-3.5"></i>
-                    <span>Pista de acceso para el Profesor: <strong class="bg-slate-200 px-1.5 py-0.5 rounded text-slate-800">Materia y ciclo</strong></span>
-                </div>
+                <div>Pista de acceso: <strong>Materia y ciclo</strong></div>
             </div>
-
         </div>
     </div>
-
 </body>
 </html>
